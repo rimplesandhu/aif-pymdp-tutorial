@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Active Inference: Temperature Control</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #0f1117;
+  color: #e2e8f0;
+  min-height: 100vh;
+  padding: 24px 16px 40px;
+}
+
+.grid-main { max-width: 740px; margin: 0 auto; }
+
+h1 { font-size: 1.4rem; font-weight: 700; color: #f8fafc; }
+.subtitle { color: #64748b; font-size: 0.8rem; margin: 4px 0 20px; line-height: 1.5; }
+
+.card {
+  background: #1e2130;
+  border: 1px solid #2d3148;
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-bottom: 14px;
+}
+
+.card-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #4a5568;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.card-title .math-note {
+  font-size: 0.68rem;
+  color: #57cc99;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  font-style: italic;
+}
+
+/* ── Observation buttons ── */
+.obs-buttons { display: flex; gap: 12px; }
+.obs-btn {
+  flex: 1;
+  padding: 16px 8px 12px;
+  border-radius: 12px;
+  border: 2px solid #2d3148;
+  cursor: pointer;
+  background: #262b3d;
+  color: #e2e8f0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.18s ease;
+  position: relative;
+}
+.obs-btn .icon { font-size: 2rem; line-height: 1; }
+.obs-btn:hover { transform: translateY(-3px); box-shadow: 0 6px 24px rgba(0,0,0,0.35); }
+.obs-btn:active { transform: translateY(0); }
+.obs-btn.cold  { border-color: #4e9af1; background: #182535; }
+.obs-btn.comfy { border-color: #57cc99; background: #162b22; }
+.obs-btn.hot   { border-color: #f77f6e; background: #2b1818; }
+.obs-btn .likely-badge {
+  position: absolute; top: -8px; right: -8px;
+  background: #f59e0b; color: #000;
+  font-size: 0.58rem; font-weight: 800;
+  padding: 2px 6px; border-radius: 20px;
+}
+
+/* ── Room status ── */
+.room-row { display: flex; align-items: center; gap: 18px; }
+.thermo-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.thermo {
+  width: 20px; height: 80px; background: #262b3d;
+  border-radius: 10px; border: 1px solid #3a3f55;
+  position: relative; overflow: hidden;
+}
+.thermo-fill {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  border-radius: 10px;
+  transition: height 0.5s ease, background 0.5s ease;
+}
+.thermo-label { font-size: 0.58rem; color: #4a5568; }
+.room-info { flex: 1; }
+.room-state { font-size: 1rem; font-weight: 700; color: #f8fafc; }
+.room-step  { font-size: 0.73rem; color: #64748b; margin-top: 4px; }
+.room-hint  { font-size: 0.73rem; color: #94a3b8; margin-top: 6px; }
+.btn-reset {
+  background: #262b3d; border: 1px solid #3a3f55; color: #94a3b8;
+  font-size: 0.75rem; padding: 6px 14px; border-radius: 8px; cursor: pointer;
+  transition: all 0.15s; margin-left: auto;
+}
+.btn-reset:hover { background: #2d3250; color: #e2e8f0; }
+
+/* ── Two column ── */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 520px) { .two-col { grid-template-columns: 1fr; } }
+
+/* ── Belief bars ── */
+.belief-chart {
+  display: flex; gap: 5px; align-items: flex-end;
+  height: 100px; padding-bottom: 2px;
+}
+.belief-col {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: flex-end; height: 100%;
+}
+.belief-pct { font-size: 0.6rem; color: #94a3b8; margin-bottom: 2px; }
+.belief-bar { width: 100%; border-radius: 4px 4px 0 0; transition: height 0.4s ease; min-height: 3px; }
+.belief-lbl { font-size: 0.56rem; color: #4a5568; margin-top: 3px; text-align: center; line-height: 1.2; }
+
+/* ── Future observations chart ── */
+.fobs-table { display: flex; flex-direction: column; gap: 8px; }
+.fobs-row {
+  padding: 7px 9px; border-radius: 8px; background: #262b3d;
+  border-left: 3px solid #3a3f55;
+  transition: border-color 0.3s;
+}
+.fobs-row.chosen { border-left-color: inherit; }
+.fobs-action-lbl {
+  font-size: 0.7rem; color: #94a3b8; margin-bottom: 6px;
+  display: flex; align-items: center; gap: 5px; font-weight: 600;
+}
+.fobs-action-lbl.chosen { color: #f8fafc; }
+.fobs-bars { display: flex; gap: 6px; height: 44px; align-items: flex-end; }
+.fobs-bar-col {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: flex-end; height: 100%;
+}
+.fobs-bar-pct  { font-size: 0.58rem; color: #94a3b8; margin-bottom: 2px; }
+.fobs-bar-fill { width: 100%; border-radius: 3px 3px 0 0; transition: height 0.4s ease; min-height: 2px; }
+.fobs-bar-lbl  { font-size: 0.6rem; color: #4a5568; margin-top: 3px; }
+
+/* ── EFE / −G ── */
+.efe-explain {
+  font-size: 0.7rem; color: #64748b; margin-bottom: 12px; line-height: 1.5;
+}
+.efe-explain span { color: #57cc99; font-weight: 600; }
+.efe-row {
+  display: flex; align-items: center;
+  margin-bottom: 8px; gap: 8px;
+}
+.efe-icon-label {
+  width: 92px; font-size: 0.76rem; color: #94a3b8;
+  display: flex; align-items: center; gap: 5px;
+}
+.efe-track {
+  flex: 1; height: 18px; background: #262b3d;
+  border-radius: 4px; overflow: hidden;
+}
+.efe-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; min-width: 3px; }
+.efe-val { width: 52px; font-size: 0.7rem; color: #64748b; text-align: right; }
+.efe-row.chosen .efe-icon-label { color: #f8fafc; font-weight: 700; }
+.efe-row.chosen .efe-val { color: #f8fafc; }
+
+/* ── Action banner ── */
+.action-banner {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; border-radius: 10px;
+  background: #262b3d; margin-top: 12px;
+  border-left: 4px solid #4a5568;
+  transition: border-color 0.3s;
+}
+.action-banner .big-icon { font-size: 1.8rem; }
+.action-name { font-size: 1rem; font-weight: 700; }
+.action-desc { font-size: 0.7rem; color: #64748b; margin-top: 2px; }
+
+/* ── Preferences / C sliders ── */
+.pref-row {
+  display: flex; align-items: center;
+  gap: 10px; margin-bottom: 10px;
+}
+.pref-row:last-of-type { margin-bottom: 0; }
+.pref-obs-label {
+  width: 110px; font-size: 0.78rem; font-weight: 600;
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+}
+.pref-slider-wrap { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+input[type=range] {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 4px; background: #3a3f55;
+  border-radius: 2px; outline: none; cursor: pointer;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px;
+  border-radius: 50%; background: #7c85f0; cursor: pointer;
+  border: 2px solid #1e2130;
+}
+input[type=range]::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #7c85f0; cursor: pointer; border: 2px solid #1e2130;
+}
+.pref-bar-track {
+  height: 5px; background: #262b3d; border-radius: 3px; overflow: hidden;
+}
+.pref-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
+.pref-c-val {
+  width: 52px; font-size: 0.72rem; color: #94a3b8; text-align: right; flex-shrink: 0;
+}
+.pref-softmax {
+  width: 44px; font-size: 0.68rem; color: #4a5568; text-align: right; flex-shrink: 0;
+}
+.pref-note {
+  font-size: 0.68rem; color: #4a5568; margin-top: 10px; line-height: 1.5;
+}
+.pref-note span { color: #57cc99; }
+
+/* ── History ── */
+.history-strip {
+  display: flex; flex-wrap: wrap; gap: 5px;
+  max-height: 80px; overflow-y: auto;
+}
+.hist-item {
+  font-size: 0.7rem; padding: 3px 9px; border-radius: 20px;
+  background: #262b3d; border-left: 3px solid transparent; white-space: nowrap;
+}
+.hist-counter { font-size: 0.7rem; color: #4a5568; margin-bottom: 8px; }
+
+/* ── Obs color palette ── */
+.obs-color-0 { background: #4e9af1; }
+.obs-color-1 { background: #57cc99; }
+.obs-color-2 { background: #f77f6e; }
+</style>
+</head>
+<body>
+<div class="grid-main">
+
+  <h1>🌡️ Active Inference: Temperature Control</h1>
+  <p class="subtitle">
+    Interactive version of notebook 02. Click an observation to trigger the agent's inference loop:<br>
+    observe → update Q(s) → compute −G(a) → select action → step environment.
+  </p>
+
+  <!-- Room status -->
+  <div class="card">
+    <div class="card-title" style="justify-content:space-between">
+      <span>Room Status</span>
+      <button class="btn-reset" onclick="doReset()">↺ Reset</button>
+    </div>
+    <div class="room-row">
+      <div class="thermo-wrap">
+        <div class="thermo"><div class="thermo-fill" id="thermo-fill"></div></div>
+        <div class="thermo-label">state</div>
+      </div>
+      <div class="room-info">
+        <div class="room-state" id="room-state-text">True state: very cold</div>
+        <div class="room-step"  id="room-step-text">Step 0 — click an observation to begin</div>
+        <div class="room-hint"  id="room-hint-text"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Observation buttons -->
+  <div class="card">
+    <div class="card-title">What do you observe?</div>
+    <div class="obs-buttons">
+      <button class="obs-btn cold"  id="obs-btn-0" onclick="observe(0)">
+        <span class="icon">❄️</span><span>Cold</span>
+      </button>
+      <button class="obs-btn comfy" id="obs-btn-1" onclick="observe(1)">
+        <span class="icon">😊</span><span>Comfortable</span>
+      </button>
+      <button class="obs-btn hot"   id="obs-btn-2" onclick="observe(2)">
+        <span class="icon">🔥</span><span>Hot</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Preferences / C vector -->
+  <div class="card">
+    <div class="card-title">
+      Preferred Observations — C(o) vector
+      <span class="math-note">log-preference · adjust to change agent goal</span>
+    </div>
+    <div id="pref-rows"></div>
+    <div class="pref-note">
+      <span>C(o)</span> is the agent's log-preference for each observation.
+      The pragmatic value of an action is E<sub>Q(o|a)</sub>[C(o)].
+      <span>Softmax(C)</span> shows the implied preference probability distribution.
+      Drag sliders to reshape what the agent finds valuable.
+    </div>
+  </div>
+
+  <!-- Beliefs + Future Obs -->
+  <div class="two-col">
+
+    <div class="card">
+      <div class="card-title">Agent Beliefs  Q(s)</div>
+      <div class="belief-chart" id="belief-chart"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        Predicted Future Obs
+        <span class="math-note">P(o<sub>t+1</sub>|a, Q(s))</span>
+      </div>
+      <div class="fobs-table" id="fobs-table"></div>
+    </div>
+
+  </div>
+
+  <!-- EFE = −G -->
+  <div class="card">
+    <div class="card-title">
+      Action Selection — Expected Free Energy
+      <span class="math-note">−G(a) = epistemic value + pragmatic value · higher = preferred ★</span>
+    </div>
+    <div class="efe-explain">
+      The agent <span>maximises −G(a)</span> (equivalently minimises G).
+      G(a) = −I(o;s|a) − E<sub>Q(o|a)</sub>[C(o)].
+      Bars show −G(a) scaled relative to the range across actions; raw values shown on right.
+    </div>
+    <div id="efe-container"></div>
+    <div class="action-banner" id="action-banner">
+      <span class="big-icon" id="action-big-icon">—</span>
+      <div>
+        <div class="action-name" id="action-name">Waiting…</div>
+        <div class="action-desc" id="action-desc">Click an observation above to begin</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- History -->
+  <div class="card">
+    <div class="card-title">History</div>
+    <div class="hist-counter" id="hist-counter">No steps yet</div>
+    <div class="history-strip" id="history-strip">
+      <span style="color:#4a5568;font-size:0.76rem">Steps will appear here…</span>
+    </div>
+  </div>
+
+</div>
+<script>
+// ── Model constants (identical to notebook 02) ──────────────────────────────
+
+const STATE_LABELS  = ["very cold","cold","comfortable","warm","hot"];
+const OBS_LABELS    = ["cold","comfortable","hot"];
+const OBS_ICONS     = ["❄️","😊","🔥"];
+const OBS_COLORS    = ["#4e9af1","#57cc99","#f77f6e"];
+const ACTION_LABELS = ["cool","do nothing","heat"];
+const ACTION_ICONS  = ["🧊","⚖️","🔥"];
+const ACTION_COLORS = ["#4e9af1","#aaaaaa","#f77f6e"];
+const ACTION_DESCS  = ["Cooling the room","Maintaining temperature","Heating the room"];
+const STATE_COLORS  = ["#1a78c2","#4e9af1","#57cc99","#f7a05a","#f77f6e"];
+
+// A[obs][state] = P(obs | state)
+const A = [
+  [0.80, 0.60, 0.10, 0.05, 0.00],
+  [0.15, 0.30, 0.70, 0.30, 0.15],
+  [0.05, 0.10, 0.20, 0.65, 0.85],
+];
+
+// B[action][s_next][s_curr] = P(s' | s, a)
+const B = [
+  // cool
+  [[0.85,0.40,0.10,0.02,0.00],[0.12,0.50,0.30,0.08,0.02],
+   [0.02,0.08,0.45,0.30,0.08],[0.01,0.02,0.12,0.50,0.35],
+   [0.00,0.00,0.03,0.10,0.55]],
+  // do_nothing
+  [[0.75,0.20,0.05,0.00,0.00],[0.20,0.60,0.15,0.05,0.00],
+   [0.05,0.15,0.60,0.15,0.05],[0.00,0.05,0.15,0.60,0.20],
+   [0.00,0.00,0.05,0.20,0.75]],
+  // heat
+  [[0.55,0.10,0.03,0.00,0.00],[0.35,0.50,0.12,0.02,0.01],
+   [0.08,0.30,0.45,0.08,0.02],[0.02,0.08,0.30,0.50,0.12],
+   [0.00,0.02,0.10,0.40,0.85]],
+];
+
+// C: log-preferences — mutable so sliders can update them
+let C = [-3.0, 5.0, -2.0];
+
+// ── Agent state ──────────────────────────────────────────────────────────────
+
+let qs          = [0.2, 0.2, 0.2, 0.2, 0.2];  // prediction prior (next step)
+let qsInferred  = [0.2, 0.2, 0.2, 0.2, 0.2];  // post-observation belief
+let trueState   = 0;
+let stepCount   = 0;
+let history     = [];
+let currentEfes   = null;
+let currentAction = null;
+
+// ── Math helpers ─────────────────────────────────────────────────────────────
+
+function normalize(v) {
+  const s = v.reduce((a, b) => a + b, 0);
+  return s < 1e-12 ? v.map(() => 1 / v.length) : v.map(x => x / s);
+}
+
+function softmax(v) {
+  const mx = Math.max(...v);
+  const ex = v.map(x => Math.exp(x - mx));
+  return normalize(ex);
+}
+
+function mvMul(mat, vec) {
+  return mat.map(row => row.reduce((s, v, j) => s + v * vec[j], 0));
+}
+
+function sampleCat(probs) {
+  let r = Math.random(), cum = 0;
+  for (let i = 0; i < probs.length; i++) { cum += probs[i]; if (r < cum) return i; }
+  return probs.length - 1;
+}
+
+// ── Active Inference core ────────────────────────────────────────────────────
+
+function inferStates(obsIdx, prior) {
+  return normalize(A[obsIdx].map((a, s) => a * prior[s]));
+}
+
+// Returns −G(a) for each action. Higher = preferred.
+// −G(a) = I(o;s|a) + E_Q(o|a)[C(o)]
+// where I(o;s|a) = Σ_s Q(s'|a) Σ_o A[o,s] ln(A[o,s] / Q(o|a))
+function computeEFE(qsCurr) {
+  return B.map(Ba => {
+    const qsNext = mvMul(Ba, qsCurr);
+    const qo     = mvMul(A, qsNext);
+
+    let epistemic = 0;
+    for (let s = 0; s < 5; s++)
+      for (let o = 0; o < 3; o++)
+        if (A[o][s] > 1e-12 && qo[o] > 1e-12)
+          epistemic += qsNext[s] * A[o][s] * Math.log(A[o][s] / qo[o]);
+
+    const pragmatic = qo.reduce((sum, p, o) => sum + p * C[o], 0);
+    return epistemic + pragmatic;
+  });
+}
+
+// Predicted observation distributions for all 3 actions
+function predictedFutureObs(qsCurr) {
+  return B.map(Ba => {
+    const qsNext = mvMul(Ba, qsCurr);
+    return mvMul(A, qsNext);   // shape: [3 obs]
+  });
+}
+
+// ── Render helpers ────────────────────────────────────────────────────────────
+
+function renderBeliefs() {
+  const chart  = document.getElementById('belief-chart');
+  const maxVal = Math.max(...qsInferred, 0.01);
+  chart.innerHTML = qsInferred.map((q, i) => `
+    <div class="belief-col">
+      <div class="belief-pct">${(q * 100).toFixed(0)}%</div>
+      <div class="belief-bar" style="height:${Math.max(3,(q/maxVal)*82)}px;background:${STATE_COLORS[i]}"></div>
+      <div class="belief-lbl">${STATE_LABELS[i].replace(' ', '<br>')}</div>
+    </div>`).join('');
+}
+
+function renderFutureObs(chosenAction) {
+  const allQo = predictedFutureObs(qsInferred);
+  const container = document.getElementById('fobs-table');
+  container.innerHTML = allQo.map((qo, a) => {
+    const maxP   = Math.max(...qo, 0.01);
+    const isCh   = (a === chosenAction);
+    const bars   = qo.map((p, o) => `
+      <div class="fobs-bar-col">
+        <div class="fobs-bar-pct">${(p*100).toFixed(0)}%</div>
+        <div class="fobs-bar-fill" style="height:${Math.max(2,(p/maxP)*34)}px;background:${OBS_COLORS[o]}"></div>
+        <div class="fobs-bar-lbl">${OBS_ICONS[o]}</div>
+      </div>`).join('');
+    return `
+      <div class="fobs-row${isCh?' chosen':''}" style="${isCh?`border-left-color:${ACTION_COLORS[a]}`:''}">
+        <div class="fobs-action-lbl${isCh?' chosen':''}">
+          ${ACTION_ICONS[a]} ${ACTION_LABELS[a]}${isCh?' ★':''}
+        </div>
+        <div class="fobs-bars">${bars}</div>
+      </div>`;
+  }).join('');
+}
+
+function renderEFE(efes, chosen) {
+  const lo = Math.min(...efes), hi = Math.max(...efes), range = hi - lo || 1;
+  document.getElementById('efe-container').innerHTML = efes.map((e, i) => `
+    <div class="efe-row${i===chosen?' chosen':''}">
+      <div class="efe-icon-label">
+        <span>${ACTION_ICONS[i]}</span>
+        <span>${ACTION_LABELS[i]}</span>
+        ${i===chosen?' ★':''}
+      </div>
+      <div class="efe-track">
+        <div class="efe-fill" style="width:${Math.max(5,((e-lo)/range)*100)}%;background:${ACTION_COLORS[i]}"></div>
+      </div>
+      <div class="efe-val">−G = ${e.toFixed(2)}</div>
+    </div>`).join('');
+}
+
+function renderActionBanner(actionIdx) {
+  const banner = document.getElementById('action-banner');
+  banner.style.borderLeftColor = ACTION_COLORS[actionIdx];
+  document.getElementById('action-big-icon').textContent = ACTION_ICONS[actionIdx];
+  document.getElementById('action-name').textContent     = ACTION_LABELS[actionIdx].toUpperCase();
+  document.getElementById('action-desc').textContent     = ACTION_DESCS[actionIdx];
+}
+
+function renderTrueState() {
+  const fill = document.getElementById('thermo-fill');
+  fill.style.height     = (10 + (trueState / 4) * 80) + '%';
+  fill.style.background = STATE_COLORS[trueState];
+  document.getElementById('room-state-text').textContent = `True state: ${STATE_LABELS[trueState]}`;
+}
+
+function renderSuggestedObs() {
+  document.querySelectorAll('.likely-badge').forEach(b => b.remove());
+  const probs = A.map(row => row[trueState]);
+  const best  = probs.indexOf(Math.max(...probs));
+  const badge = document.createElement('span');
+  badge.className   = 'likely-badge';
+  badge.textContent = 'LIKELY';
+  document.getElementById(`obs-btn-${best}`).appendChild(badge);
+  document.getElementById('room-hint-text').textContent =
+    `Sensor hint: most probable observation is ${OBS_ICONS[best]} ${OBS_LABELS[best]} (${(probs[best]*100).toFixed(0)}%)`;
+}
+
+function renderPreferences() {
+  const sm = softmax(C);
+  const container = document.getElementById('pref-rows');
+  container.innerHTML = C.map((c, i) => `
+    <div class="pref-row">
+      <div class="pref-obs-label">
+        <span style="font-size:1.2rem">${OBS_ICONS[i]}</span>
+        <span>${OBS_LABELS[i]}</span>
+      </div>
+      <div class="pref-slider-wrap">
+        <input type="range" id="c-slider-${i}" min="-5" max="5" step="0.5" value="${c}"
+               oninput="onCSlider()" style="accent-color:${OBS_COLORS[i]}">
+        <div class="pref-bar-track">
+          <div class="pref-bar-fill" id="pref-bar-${i}"
+               style="width:${(sm[i]*100).toFixed(1)}%;background:${OBS_COLORS[i]}"></div>
+        </div>
+      </div>
+      <div class="pref-c-val" id="pref-cval-${i}">C = ${c >= 0 ? '+' : ''}${c.toFixed(1)}</div>
+      <div class="pref-softmax" id="pref-sm-${i}">${(sm[i]*100).toFixed(1)}%</div>
+    </div>`).join('');
+}
+
+function renderHistory() {
+  if (!history.length) return;
+  document.getElementById('hist-counter').textContent =
+    `${stepCount} step${stepCount !== 1 ? 's' : ''} completed`;
+  const strip = document.getElementById('history-strip');
+  strip.innerHTML = history.slice(-40).map(h => `
+    <span class="hist-item" style="border-left-color:${ACTION_COLORS[h.action]}">
+      ${OBS_ICONS[h.obs]} → ${ACTION_ICONS[h.action]}
+    </span>`).join('');
+  strip.scrollLeft = strip.scrollWidth;
+}
+
+function renderAll() {
+  renderBeliefs();
+  renderFutureObs(currentAction);
+  renderEFE(currentEfes, currentAction);
+  if (currentAction !== null) renderActionBanner(currentAction);
+  renderTrueState();
+  renderSuggestedObs();
+  renderHistory();
+}
+
+// ── Handlers ─────────────────────────────────────────────────────────────────
+
+function observe(obsIdx) {
+  // Bayesian belief update
+  qsInferred = inferStates(obsIdx, qs);
+
+  // Compute −G for each action, pick argmax
+  currentEfes   = computeEFE(qsInferred);
+  currentAction = currentEfes.indexOf(Math.max(...currentEfes));
+
+  history.push({ obs: obsIdx, action: currentAction });
+  stepCount++;
+
+  // Step true environment
+  trueState = sampleCat(B[currentAction].map(row => row[trueState]));
+
+  // Prediction prior for next step: Q(s_{t+1}) = B[a] · Q(s_t)
+  qs = normalize(mvMul(B[currentAction], qsInferred));
+
+  document.getElementById('room-step-text').textContent =
+    `Step ${stepCount} — observed ${OBS_ICONS[obsIdx]} ${OBS_LABELS[obsIdx]}, ` +
+    `agent chose ${ACTION_ICONS[currentAction]} ${ACTION_LABELS[currentAction]}`;
+
+  renderAll();
+}
+
+// Called when any C slider moves — recompute EFE only (beliefs/future-obs unchanged)
+function onCSlider() {
+  for (let i = 0; i < 3; i++)
+    C[i] = parseFloat(document.getElementById(`c-slider-${i}`).value);
+
+  const sm = softmax(C);
+  for (let i = 0; i < 3; i++) {
+    document.getElementById(`pref-cval-${i}`).textContent =
+      `C = ${C[i] >= 0 ? '+' : ''}${C[i].toFixed(1)}`;
+    document.getElementById(`pref-sm-${i}`).textContent  = `${(sm[i]*100).toFixed(1)}%`;
+    document.getElementById(`pref-bar-${i}`).style.width = `${(sm[i]*100).toFixed(1)}%`;
+  }
+
+  // Recompute EFE and action with new C, same qsInferred
+  currentEfes   = computeEFE(qsInferred);
+  currentAction = currentEfes.indexOf(Math.max(...currentEfes));
+  renderEFE(currentEfes, currentAction);
+  renderActionBanner(currentAction);
+  renderFutureObs(currentAction);  // only highlighting changes
+}
+
+function doReset() {
+  qs = qsInferred = [0.2, 0.2, 0.2, 0.2, 0.2];
+  trueState   = 0;
+  stepCount   = 0;
+  history     = [];
+  currentEfes   = computeEFE(qsInferred);
+  currentAction = currentEfes.indexOf(Math.max(...currentEfes));
+
+  document.getElementById('room-step-text').textContent = 'Step 0 — click an observation to begin';
+  document.getElementById('hist-counter').textContent   = 'No steps yet';
+  document.getElementById('history-strip').innerHTML    =
+    '<span style="color:#4a5568;font-size:0.76rem">Steps will appear here…</span>';
+  document.getElementById('action-big-icon').textContent = '—';
+  document.getElementById('action-name').textContent     = 'Waiting…';
+  document.getElementById('action-desc').textContent     = 'Click an observation above to begin';
+  document.getElementById('action-banner').style.borderLeftColor = '#4a5568';
+
+  renderBeliefs();
+  renderFutureObs(currentAction);
+  renderEFE(currentEfes, currentAction);
+  renderTrueState();
+  renderSuggestedObs();
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+renderPreferences();
+doReset();
+</script>
+</body>
+</html>
